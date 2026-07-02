@@ -46,6 +46,7 @@ import tempfile
 import time
 import traceback
 from datetime import datetime
+from os.path import isfile
 
 import wx
 from packaging.version import parse
@@ -694,448 +695,215 @@ def process_file(self, file_type):
 
         is_payload_bin = False
         factory_images = os.path.join(config_path, 'factory_images')
-        if file_type == 'firmware':
-            is_stock_boot = True
-            file_to_process = self.config.firmware_path
-            file_ext = os.path.splitext(file_to_process)[1].lower()
-            print(f"Factory File:          {file_to_process}")
-            file_size = os.path.getsize(file_to_process)
-            file_size_gb = file_size / (1024 * 1024 * 1024)
-            print(f"File Size:             {file_size_gb:.2f} GB")
-            if file_size_gb > 3:
-                print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                print("⚠️ WARNING: The selected firmware file is larger than 3GB.")
-                print("This could take a while to process, please be patient.")
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-                puml("#orange:Large firmware file detected;\n")
-                wx.Yield()
+        is_stock_boot = True
+        file_to_process = self.config.firmware_path
+        file_ext = os.path.splitext(file_to_process)[1].lower()
+        print(f"Factory File:          {file_to_process}")
+        file_size = os.path.getsize(file_to_process)
+        file_size_gb = file_size / (1024 * 1024 * 1024)
+        print(f"File Size:             {file_size_gb:.2f} GB")
+        if file_size_gb > 3:
+            print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("⚠️ WARNING: The selected firmware file is larger than 3GB.")
+            print("This could take a while to process, please be patient.")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+            puml("#orange:Large firmware file detected;\n")
+            wx.Yield()
 
-            puml(f"note right:{file_to_process}\n")
-            package_sig = get_firmware_id()
-            package_dir_full = os.path.join(factory_images, package_sig or '')
-            wx.Yield()
-            found_flash_all_bat = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.bat", nested=False)
-            wx.Yield()
-            found_flash_all_sh = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.sh", nested=False)
-            wx.Yield()
-            found_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="boot.img", nested=True)
-            wx.Yield()
-            found_init_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="init_boot.img", nested=True)
-            wx.Yield()
-            found_vbmeta_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vbmeta.img", nested=True)
-            wx.Yield()
-            found_vendor_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_boot.img", nested=True)
-            wx.Yield()
-            found_vendor_kernel_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_kernel_boot.img", nested=True)
-            wx.Yield()
-            found_boot_img_lz4 = ''
-            set_firmware_has_init_boot(False)
-            set_ota(self, False)
-            if found_init_boot_img:
-                set_firmware_has_init_boot(True)
-                is_init_boot = True
-            if found_flash_all_bat and found_flash_all_sh and (get_firmware_hash_validity() or not self.config.check_for_firmware_hash_validity):
-                # assume Pixel factory file
-                if self.config.check_for_firmware_hash_validity:
-                    print("Detected Pixel firmware")
-                package_sig = str(found_flash_all_bat).split('/')[0]
-                package_dir_full = os.path.join(factory_images, package_sig)
-                image_file_path = os.path.join(package_dir_full, f"image-{package_sig}.zip")
-                # Unzip the factory image
-                wx.Yield()
-                debug(f"Unzipping Image: {file_to_process} into {package_dir_full} ...")
-                theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{factory_images}\" \"{file_to_process}\""
-                debug(theCmd)
-                res = run_shell2(theCmd)
-                if res and isinstance(res, subprocess.CompletedProcess):
-                    debug(f"Return Code: {res.returncode}")
-                    debug(f"Stdout: {res.stdout}")
-                    debug(f"Stderr: {res.stderr}")
-                    if res.returncode != 0:
-                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
-                        puml("#red:ERROR: Could not extract image;\n")
-                        print("Aborting ...\n")
-                        self.toast(_("Process action"), _("❌ Could not extract %s") % file_to_process)
-                        return
-                else:
-                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
-                    puml("#red:ERROR: Could not extract image;\n")
-                    print("Aborting ...\n")
-                    self.toast(_("Process action"), "❌ Could not extract %s" % file_to_process)
-                    return
-                if os.path.exists(image_file_path):
-                    print("Possibly the selected image is an official Pixel factory image.")
-                else:
-                    print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                    print(f"⚠️ WARNING: Possibly the selected image is a Non-official Pixel factory image.")
-                    print("Please check the file you selected, it may not be a valid Pixel factory image.")
-                    print("If it is not an official Pixel factory image, please check the author's documentation for more information.")
-                    print("Do not flash this image if you are not sure how to proceed, it may brick your device!")
-                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-                    puml("#orange:Possible Non-Pixel factory image found;\n")
-                    image_file_path = None
-                wx.Yield()
-            elif found_boot_img or found_init_boot_img:
-                print(f"Detected Non Pixel firmware, with: {found_boot_img} {found_init_boot_img}")
-                # Check if the firmware file starts with image-* and warn the user or abort
-                firmware_file_name = os.path.basename(file_to_process)
-                # empty mkdir - Nothing will be extracted here, needed for Non-Pixel factory firmware
-                os.makedirs(package_dir_full, exist_ok=True)
-                if firmware_file_name.startswith('image-'):
-                    title = _("Possibly extracted firmware.")
-                    message_en =  "WARNING: It looks like you have extracted the firmware file.\nand selected the image zip from it.\n\n"
-                    message_en += "You should not extract the file, please select the downloaded firmware file instead\n\n"
-                    message_en += "If this is not the case, and you want to continue with this selection\n"
-                    message_en += "Click OK to accept and continue.\n"
-                    message_en += "or Hit CANCEL to abort."
-                    message =  _("WARNING: It looks like you have extracted the firmware file.\nand selected the image zip from it.\n\n")
-                    message += _("You should not extract the file, please select the downloaded firmware file instead\n\n")
-                    message += _("If this is not the case, and you want to continue with this selection\n")
-                    message += _("Click OK to accept and continue.\n")
-                    message += _("or Hit CANCEL to abort.")
-                    print(f"\n*** Dialog ***\n{message_en}\n______________\n")
-                    puml("#orange:WARNING;\n", True)
-                    puml(f"note right\n{message_en}\nend note\n")
-                    dlg = wx.MessageDialog(None, message, title, wx.CANCEL | wx.OK | wx.ICON_EXCLAMATION)
-                    result = dlg.ShowModal()
-                    if result != wx.ID_OK:
-                        print("User pressed cancel.")
-                        puml("#pink:User Pressed Cancel to abort;\n")
-                        print("Aborting ...\n")
-                        return
-                    print("User pressed ok.")
-                    puml(":User Pressed OK to continue;\n")
-                image_file_path = file_to_process
-            elif check_zip_contains_file(file_to_process, "payload.bin", self.config.low_mem):
-                is_payload_bin = True
-                set_ota(self, True)
-                if get_ota() and (get_firmware_hash_validity() or not self.config.check_for_firmware_hash_validity):
-                    print("Detected OTA file")
-                else:
-                    print("Detected a firmware, with payload.bin")
-                wx.Yield()
-            else:
-                # -------------------------
-                # Samsung firmware handling
-                # -------------------------
-                # Get file list from zip
-                file_list = get_zip_file_list(file_to_process)
-                patterns = {
-                    'AP': 'AP_*.tar.md5',
-                    'BL': 'BL_*.tar.md5',
-                    'HOME_CSC': 'HOME_CSC_*.tar.md5',
-                    'CSC': 'CSC_*.tar.md5',
-                }
-                found_ap = ''
-                found_bl = ''
-                found_csc = ''
-                found_home_csc = ''
-                # see if we find AP_*.tar.md5, if yes set is_samsung flag
-                if not file_list: return
-                for file in file_list:
-                    wx.Yield()
-                    if not found_ap and fnmatch.fnmatch(file, patterns['AP']):
-                        # is_odin = 1
-                        is_odin = True
-                        print(f"Found {file} file.")
-                        found_ap = file
-                    if not found_bl and fnmatch.fnmatch(file, patterns['BL']):
-                        print(f"Found {file} file.")
-                        found_bl = file
-                    if not found_home_csc and fnmatch.fnmatch(file, patterns['HOME_CSC']):
-                        print(f"Found {file} file.")
-                        found_home_csc = file
-                    if not found_csc and fnmatch.fnmatch(file, patterns['CSC']):
-                        print(f"Found {file} file.")
-                        found_csc = file
-
-                # TODO check settings, see if offer samsung extraction options is enabled
-                # if yes, offer list of found files to extract
-                if found_ap:
-                    # assume Samsung firmware
-                    print("Detected Samsung firmware")
-                    image_file_path = os.path.join(package_dir_full, found_ap)
-                    # Unzip the factory image
-                    debug(f"Unzipping Image: {file_to_process} into {package_dir_full} ...")
-                    theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{package_dir_full}\" \"{file_to_process}\""
-                    debug(theCmd)
-                    wx.Yield()
-                    res = run_shell2(theCmd)
-                    wx.Yield()
-                    # see if there is boot.img.lz4 in AP file
-                    boot_image_file = ''
-                    found_boot_img_lz4 = check_archive_contains_file(archive_file_path=image_file_path, file_to_check="boot.img.lz4", nested=False)
-                    if found_boot_img_lz4:
-                        boot_image_file = "boot.img.lz4"
-                    else:
-                        # if not look for boot.img (some Samsung devices don't have boot.img.lz4)
-                        found_boot_img = check_archive_contains_file(archive_file_path=image_file_path, file_to_check="boot.img", nested=False)
-                        if found_boot_img:
-                            boot_image_file = "boot.img"
-                    if boot_image_file:
-                        print(f"Extracting {boot_image_file} from {found_ap} ...")
-                        puml(f":Extract {boot_image_file};\n")
-                        theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{package_dir_full}\" \"{image_file_path}\" {boot_image_file}"
-                        wx.Yield()
-                        debug(f"{theCmd}")
-                        res = run_shell(theCmd)
-                        wx.Yield()
-                        # expect ret 0
-                        if res and isinstance(res, subprocess.CompletedProcess):
-                            debug(f"Return Code: {res.returncode}")
-                            debug(f"Stdout: {res.stdout}")
-                            debug(f"Stderr: {res.stderr}")
-                            if res.returncode != 0:
-                                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_image_file}")
-                                puml(f"#red:ERROR: Could not extract {boot_image_file};\n")
-                                print("Aborting ...\n")
-                                self.toast(_("Process action"), "❌ Could not extract %s." % boot_image_file)
-                                return
-                            else:
-                                if boot_image_file == "boot.img.lz4":
-                                    # unpack boot.img.lz4
-                                    print(f"Unpacking {boot_image_file} ...")
-                                    puml(f":Unpack {boot_image_file};\n")
-                                    unpack_lz4(os.path.join(package_dir_full, 'boot.img.lz4'), os.path.join(package_dir_full, 'boot.img'))
-                                # Check if it exists
-                                if os.path.exists(os.path.join(package_dir_full, 'boot.img')):
-                                    found_boot_img = 'boot.img'
-                                else:
-                                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not unpack {boot_image_file}")
-                                    puml("#red:ERROR: Could not unpack {boot_image_file};\n")
-                                    print("Aborting ...\n")
-                                    self.toast(_("Process action"), _("❌ Could not unpack %s.") % boot_image_file)
-                                    return
-                        else:
-                            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_image_file}")
-                            puml(f"#red:ERROR: Could not extract {boot_image_file};\n")
-                            print("Aborting ...\n")
-                            self.toast(_("Process action"), _("❌ Could not extract %s.") % boot_image_file)
-                            return
-                    else:
-                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not find {boot_image_file}")
-                        puml(f"#red:ERROR: Could not find {boot_image_file};\n")
-                        print("Aborting ...\n")
-                        self.toast(_("Process action"), _("❌ Could not find %s.") % boot_image_file)
-                        return
-                else:
-                    print("Detected Unsupported firmware file.")
-                    print("Aborting ...")
-                    self.toast(_("Process action"), _("⚠️ Detected unsupported firmware."))
-                    return
+        puml(f"note right:{file_to_process}\n")
+        found_flash_all_bat = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.bat", nested=False)
+        wx.Yield()
+        found_flash_all_sh = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.sh", nested=False)
+        wx.Yield()
+        package_sig = str(found_flash_all_bat).split('/')[0]
+        package_dir_full = os.path.join(factory_images, package_sig)
+        image_file_path = os.path.join(package_dir_full, f"image-{package_sig}.zip")
+        debug(f"Unzipping Image: {file_to_process} into {factory_images} ...")
+        theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{factory_images}\" \"{file_to_process}\""
+        res = run_shell2(theCmd)
+        if res and isinstance(res, subprocess.CompletedProcess):
+            debug(f"Return Code: {res.returncode}")
+            debug(f"Stdout: {res.stdout}")
+            debug(f"Stderr: {res.stderr}")
+            if res.returncode != 0:
+                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+                puml("#red:ERROR: Could not extract image;\n")
+                print("Aborting ...\n")
+                self.toast(_("Process action"), _("❌ Could not extract %s") % file_to_process)
+                return
         else:
-            file_to_process = self.config.custom_rom_path
-            file_ext = os.path.splitext(file_to_process)[1].lower()
-            print(f"ROM File:              {file_to_process}")
-            file_size = os.path.getsize(file_to_process)
-            file_size_gb = file_size / (1024 * 1024 * 1024)
-            print(f"File Size:             {file_size_gb:.2f} GB")
-            if file_size_gb > 3:
-                print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                print("⚠️ WARNING: The selected ROM file is larger than 3GB.")
-                print("This could take a while to process, please be patient.")
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-                puml("#orange:Large firmware file detected;\n")
-                wx.Yield()
+            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+            puml("#red:ERROR: Could not extract image;\n")
+            print("Aborting ...\n")
+            self.toast(_("Process action"), "❌ Could not extract %s" % file_to_process)
+            return
+        wx.Yield()
+        debug(f"Unzipping Image: {image_file_path} into {tmp_dir_full} ...")
+        theCmd2 = f"\"{path_to_7z}\" x -bd -y -o\"{tmp_dir_full}\" \"{image_file_path}\""
+        debug(f"{theCmd2}")
+        res2 = run_shell2(theCmd2)
+        if res2 and isinstance(res2, subprocess.CompletedProcess):
+            debug(f"Return Code: {res2.returncode}")
+            debug(f"Stdout: {res2.stdout}")
+            debug(f"Stderr: {res2.stderr}")
+            if res2.returncode != 0:
+                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+                puml("#red:ERROR: Could not extract image;\n")
+                print("Aborting ...\n")
+                self.toast(_("Process action"), _("❌ Could not extract %s") % file_to_process)
+                return
+        else:
+            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+            puml("#red:ERROR: Could not extract image;\n")
+            print("Aborting ...\n")
+            self.toast(_("Process action"), "❌ Could not extract %s" % file_to_process)
+            return
+        wx.Yield()
+        found_boot_img = check_dir_contains_file(file_dir=tmp_dir_full, file_to_check="boot.img")
+        found_init_boot_img = check_dir_contains_file(file_dir=tmp_dir_full, file_to_check="init_boot.img")
+        found_vbmeta_img = check_dir_contains_file(file_dir=tmp_dir_full, file_to_check="vbmeta.img")
+        found_vendor_boot_img = check_dir_contains_file(file_dir=tmp_dir_full, file_to_check="vendor_boot.img")
+        found_vendor_kernel_boot_img = check_dir_contains_file(file_dir=tmp_dir_full, file_to_check="vendor_kernel_boot.img")
+
+        # found_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="boot.img", nested=True)
+        # wx.Yield()
+        # found_init_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="init_boot.img", nested=True)
+        # wx.Yield()
+        # found_vbmeta_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vbmeta.img", nested=True)
+        # wx.Yield()
+        # found_vendor_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_boot.img", nested=True)
+        # wx.Yield()
+        # found_vendor_kernel_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_kernel_boot.img", nested=True)
+        # wx.Yield()
+        # found_boot_img_lz4 = ''
+        set_firmware_has_init_boot(False)
+        set_ota(self, False)
+        if found_init_boot_img:
+            set_firmware_has_init_boot(True)
+            is_init_boot = True
+        if found_flash_all_bat and found_flash_all_sh and (get_firmware_hash_validity() or not self.config.check_for_firmware_hash_validity):
+            # assume Pixel factory file
+            if self.config.check_for_firmware_hash_validity:
+                print("Detected Pixel firmware")
+            #package_sig = str(found_flash_all_bat).split('/')[0]
+            #package_dir_full = os.path.join(factory_images, package_sig)
+            # image_file_path = os.path.join(package_dir_full, f"image-{package_sig}.zip")
+            # Unzip the factory image
+            #wx.Yield()
+            # theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{factory_images}\" \"{file_to_process}\""
+            # debug(theCmd)
+            # res = run_shell2(theCmd)
+            # if res and isinstance(res, subprocess.CompletedProcess):
+            #     debug(f"Return Code: {res.returncode}")
+            #     debug(f"Stdout: {res.stdout}")
+            #     debug(f"Stderr: {res.stderr}")
+            #     if res.returncode != 0:
+            #         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+            #         puml("#red:ERROR: Could not extract image;\n")
+            #         print("Aborting ...\n")
+            #         self.toast(_("Process action"), _("❌ Could not extract %s") % file_to_process)
+            #         return
+            # else:
+            #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
+            #     puml("#red:ERROR: Could not extract image;\n")
+            #     print("Aborting ...\n")
+            #     self.toast(_("Process action"), "❌ Could not extract %s" % file_to_process)
+            #     return
+            if os.path.exists(image_file_path):
+                print("Possibly the selected image is an official Pixel factory image.")
+            else:
+                print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print(f"⚠️ WARNING: Possibly the selected image is a Non-official Pixel factory image.")
+                print("Please check the file you selected, it may not be a valid Pixel factory image.")
+                print("If it is not an official Pixel factory image, please check the author's documentation for more information.")
+                print("Do not flash this image if you are not sure how to proceed, it may brick your device!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+                puml("#orange:Possible Non-Pixel factory image found;\n")
+                image_file_path = None
             wx.Yield()
-            found_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="boot.img", nested=False)
-            wx.Yield()
-            found_init_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="init_boot.img", nested=False)
-            wx.Yield()
-            found_vbmeta_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vbmeta.img", nested=False)
-            wx.Yield()
-            found_vendor_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_boot.img", nested=False)
-            wx.Yield()
-            found_vendor_kernel_boot_img = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="vendor_kernel_boot.img", nested=False)
-            wx.Yield()
-            set_rom_has_init_boot(False)
-            if found_init_boot_img:
-                set_rom_has_init_boot(True)
-                is_init_boot = True
-            elif check_zip_contains_file(file_to_process, "payload.bin", self.config.low_mem):
-                print("Detected a ROM, with payload.bin")
-                is_payload_bin = True
-            package_sig = get_custom_rom_id()
-            package_dir_full = os.path.join(factory_images, package_sig or '')
-            image_file_path = file_to_process
-            puml(f"note right:{image_file_path}\n")
 
         # delete all files in tmp folder to make sure we're dealing with new files only.
         wx.Yield()
-        delete_all(tmp_dir_full)
+        #delete_all(tmp_dir_full)
         boot_file_name = ''
 
-        if is_payload_bin:
-            # extract the payload.bin into a temporary directory
-            is_stock_boot = True
-            temp_dir = tempfile.TemporaryDirectory()
-            temp_dir_path = temp_dir.name
-            try:
-                print(f"Extracting payload.bin from {file_to_process} ...")
-                puml(":Extract payload.bin;\n")
-                theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{temp_dir_path}\" \"{file_to_process}\" payload.bin"
-                debug(f"{theCmd}")
-                wx.Yield()
-                res = run_shell(theCmd)
-                wx.Yield()
-                # expect ret 0
-                if res and isinstance(res, subprocess.CompletedProcess):
-                    debug(f"Return Code: {res.returncode}")
-                    debug(f"Stdout: {res.stdout}")
-                    debug(f"Stderr: {res.stderr}")
-                    if res.returncode != 0:
-                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract payload.bin.")
-                        puml("#red:ERROR: Could not extract payload.bin;\n")
-                        print("Aborting ...\n")
-                        self.toast(_("Process action"), _("❌ Could not extract payload.bin."))
-                        return
-                else:
-                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract payload.bin.")
-                    puml("#red:ERROR: Could not extract payload.bin;\n")
-                    print("Aborting ...\n")
-                    self.toast(_("Process action"), _("❌ Could not extract payload.bin."))
-                    return
-                # extract boot.img, init_boot.img, vbmeta.img from payload.bin, ...
-                payload_file_path = os.path.join(temp_dir_path, "payload.bin")
-                if not os.path.exists(package_dir_full):
-                    os.makedirs(package_dir_full, exist_ok=True)
-                if self.config.extra_img_extracts:
-                    print("Option to copy extra img files is enabled.")
-                    wx.Yield()
-                    extract_payload(payload_file_path, out=package_dir_full, diff=False, old='old', images='boot,vbmeta,init_boot,dtbo,super_empty,vendor_boot,vendor_kernel_boot')
-                    wx.Yield()
-                    if os.path.exists(os.path.join(package_dir_full, 'dtbo.img')):
-                        dtbo_img_file = os.path.join(package_dir_full, 'dtbo.img')
-                        debug(f"Copying {dtbo_img_file}")
-                        shutil.copy(dtbo_img_file, os.path.join(tmp_dir_full, 'dtbo.img'), follow_symlinks=True)
-                    if os.path.exists(os.path.join(package_dir_full, 'super_empty.img')):
-                        super_empty_img_file = os.path.join(package_dir_full, 'super_empty.img')
-                        debug(f"Copying {super_empty_img_file}")
-                        shutil.copy(super_empty_img_file, os.path.join(tmp_dir_full, 'super_empty.img'), follow_symlinks=True)
-                    if os.path.exists(os.path.join(package_dir_full, 'vendor_boot.img')):
-                        vendor_boot_img_file = os.path.join(package_dir_full, 'vendor_boot.img')
-                        debug(f"Copying {vendor_boot_img_file}")
-                        shutil.copy(vendor_boot_img_file, os.path.join(tmp_dir_full, 'vendor_boot.img'), follow_symlinks=True)
-                    if os.path.exists(os.path.join(package_dir_full, 'vendor_kernel_boot.img')):
-                        vendor_kernel_boot_img_file = os.path.join(package_dir_full, 'vendor_kernel_boot.img')
-                        debug(f"Copying {vendor_kernel_boot_img_file}")
-                        shutil.copy(vendor_kernel_boot_img_file, os.path.join(tmp_dir_full, 'vendor_kernel_boot.img'), follow_symlinks=True)
-                else:
-                    print("Extracting files from payload.bin ...")
-                    wx.Yield()
-                    extract_payload(payload_file_path, out=package_dir_full, diff=False, old='old', images='boot,vbmeta,init_boot,vendor_boot')
-                    wx.Yield()
-                if os.path.exists(os.path.join(package_dir_full, 'boot.img')):
-                    boot_img_file = os.path.join(package_dir_full, 'boot.img')
-                    debug(f"Copying {boot_img_file}")
-                    shutil.copy(boot_img_file, os.path.join(tmp_dir_full, 'boot.img'), follow_symlinks=True)
-                    boot_file_name = 'boot.img'
-                if os.path.exists(os.path.join(package_dir_full, 'init_boot.img')):
-                    boot_img_file = os.path.join(package_dir_full, 'init_boot.img')
-                    debug(f"Copying {boot_img_file}")
-                    shutil.copy(boot_img_file, os.path.join(tmp_dir_full, 'init_boot.img'), follow_symlinks=True)
-                    boot_file_name = 'init_boot.img'
-                    found_init_boot_img = 'True' # This is intentionally a string, all we care is for it to not evaluate to False
-                    is_init_boot = True
-                if os.path.exists(os.path.join(package_dir_full, 'vendor_boot.img')):
-                    boot_img_file = os.path.join(package_dir_full, 'vendor_boot.img')
-                    debug(f"Copying {boot_img_file}")
-                    shutil.copy(boot_img_file, os.path.join(tmp_dir_full, 'vendor_boot.img'), follow_symlinks=True)
-                if os.path.exists(os.path.join(package_dir_full, 'vendor_kernel_boot.img')):
-                    boot_img_file = os.path.join(package_dir_full, 'vendor_kernel_boot.img')
-                    debug(f"Copying {boot_img_file}")
-                    shutil.copy(boot_img_file, os.path.join(tmp_dir_full, 'vendor_kernel_boot.img'), follow_symlinks=True)
-            except Exception as e:
-                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered while processing payload.bin")
-                traceback.print_exc()
-            finally:
-                temp_dir.cleanup()
-        else:
-            if is_odin:
-                shutil.copy(os.path.join(package_dir_full, 'boot.img'), os.path.join(tmp_dir_full, 'boot.img'), follow_symlinks=True)
-            if image_file_path and not os.path.exists(image_file_path):
-                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: The firmware file did not have the expected structure / contents.")
-                if file_type == 'firmware':
-                    print(f"Please check {self.config.firmware_path} to make sure it is a valid factory image file.")
-                    puml("#red:The selected firmware is not valid;\n")
-                print("Aborting ...\n")
-                self.toast(_("Process action"), _("❌ The selected firmware is not valid."))
-                return
 
-            files_to_extract = ''
-            boot_file_name = ''
-            if found_boot_img:
-                boot_file_name = 'boot.img'
-                files_to_extract += 'boot.img '
-            if found_init_boot_img:
-                boot_file_name = 'init_boot.img'
-                files_to_extract += 'init_boot.img '
-                is_init_boot = True
-            if found_vbmeta_img:
-                files_to_extract += 'vbmeta.img '
-            if found_vendor_boot_img:
-                files_to_extract += 'vendor_boot.img '
-            if found_vendor_kernel_boot_img:
-                files_to_extract += 'vendor_kernel_boot.img '
-            files_to_extract = files_to_extract.strip()
+        if image_file_path and not os.path.exists(image_file_path):
+            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: The firmware file did not have the expected structure / contents.")
+            if file_type == 'firmware':
+                print(f"Please check {self.config.firmware_path} to make sure it is a valid factory image file.")
+                puml("#red:The selected firmware is not valid;\n")
+            print("Aborting ...\n")
+            self.toast(_("Process action"), _("❌ The selected firmware is not valid."))
+            return
 
-            if not is_odin:
-                if not files_to_extract:
-                    print(f"Nothing to extract from {file_type}")
-                    print("Aborting ...")
-                    puml("#red:Nothing to extract from {file_type};\n")
-                    self.toast(_("Process action"), _("⚠️ Nothing to extract from %s") % file_type)
-                    return
+        files_to_extract = ''
+        boot_file_name = ''
+        if found_boot_img:
+            boot_file_name = 'boot.img'
+            files_to_extract += 'boot.img '
+        if found_init_boot_img:
+            boot_file_name = 'init_boot.img'
+            files_to_extract += 'init_boot.img '
+            is_init_boot = True
+        if found_vbmeta_img:
+            files_to_extract += 'vbmeta.img '
+        if found_vendor_boot_img:
+            files_to_extract += 'vendor_boot.img '
+        if found_vendor_kernel_boot_img:
+            files_to_extract += 'vendor_kernel_boot.img '
+        files_to_extract = files_to_extract.strip()
 
-                if image_file_path:
-                    print(f"Extracting {files_to_extract} from {image_file_path} ...")
-                    print("This could take some more time, please wait ...")
-                    puml(f":Extract {files_to_extract};\n")
-                    wx.Yield()
-                    if file_ext in ['.tgz']:
-                        res = extract_from_nested_tgz(image_file_path, files_to_extract, tmp_dir_full)
-                        if not res:
-                            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
-                            puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
-                            self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
-                            print("Aborting ...\n")
-                            return
-                    else:
-                        theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{tmp_dir_full}\" \"{image_file_path}\" {files_to_extract}"
-                        debug(f"{theCmd}")
-                        wx.Yield()
-                        res = run_shell(theCmd)
-                        # expect ret 0
-                        if res and isinstance(res, subprocess.CompletedProcess):
-                            debug(f"Return Code: {res.returncode}")
-                            debug(f"Stdout: {res.stdout}")
-                            debug(f"Stderr: {res.stderr}")
-                            if res.returncode != 0:
-                                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
-                                puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
-                                self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
-                                print("Aborting ...\n")
-                                return
-                        else:
-                            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
-                            puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
-                            self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
-                            print("Aborting ...\n")
-                            return
+
+        if not files_to_extract:
+            print(f"Nothing to extract from {file_type}")
+            print("Aborting ...")
+            puml("#red:Nothing to extract from {file_type};\n")
+            self.toast(_("Process action"), _("⚠️ Nothing to extract from %s") % file_type)
+            return None
+
+        if image_file_path:
+            #print(f"Extracting {files_to_extract} from {image_file_path} ...")
+            #print("This could take some more time, please wait ...")
+            #puml(f":Extract {files_to_extract};\n")
+            wx.Yield()
+            # -------------
+            # for boot_file in files_to_extract:
+            #     shutil.move(os.path.join(tmp_dir_full, boot_file), tmp_dir_full)
+            # delete_all(tmp_dir_full)
+            # -------------
+            # the_cmd = f"\"{path_to_7z}\" x -bd -y -o\"{tmp_dir_full}\" \"{image_file_path}\" {files_to_extract}"
+            # debug(f"{the_cmd}")
+            # wx.Yield()
+            # res = run_shell(the_cmd)
+            # # expect ret 0
+            # if res and isinstance(res, subprocess.CompletedProcess):
+            #     debug(f"Return Code: {res.returncode}")
+            #     debug(f"Stdout: {res.stdout}")
+            #     debug(f"Stderr: {res.stderr}")
+            #     if res.returncode != 0:
+            #         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
+            #         puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
+            #         self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
+            #         print("Aborting ...\n")
+            #         return
+            # else:
+            #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
+            #     puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
+            #     self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
+            #     print("Aborting ...\n")
+            #     return
 
         # sometimes the return code is 0 but no file to extract, handle that case.
         # also handle the case of extraction from payload.bin
-        if image_file_path:
-            boot_img_file = os.path.join(tmp_dir_full, boot_file_name)
-        else:
-            boot_img_file = os.path.join(package_dir_full, boot_file_name)
-        if not os.path.exists(boot_img_file):
-            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}, ")
-            print(f"Please make sure the file: {image_file_path} has {boot_file_name} in it.")
-            puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
-            print("Aborting ...\n")
-            self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
-            return
+        boot_img_file = os.path.join(tmp_dir_full, boot_file_name)
+        # if not os.path.exists(boot_img_file):
+        #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}, ")
+        #     print(f"Please make sure the file: {image_file_path} has {boot_file_name} in it.")
+        #     puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
+        #     print("Aborting ...\n")
+        #     self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
+        #     return
 
         # get the checksum of the boot_file_name
         wx.Yield()
@@ -1265,7 +1033,7 @@ def process_flash_all_file(filepath):
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR! File: {filepath} not found.")
         return "ERROR"
     try:
-        cwd = os.getcwd()
+        #cwd = os.getcwd()
         flash_file_lines = []
         with open(filepath) as fp:
             #1st line, platform

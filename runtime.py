@@ -1611,7 +1611,8 @@ def get_path_to_7z() -> str | None:
     if sys.platform == "win32":
         path_to_7z =  os.path.join(get_bundle_dir(),'bin', '7z.exe')
     elif sys.platform == "darwin":
-        path_to_7z =  os.path.join(get_bundle_dir(),'bin', '7zz')
+        path_to_7z = "/opt/homebrew/bin/7zz" #os.path.join(get_bundle_dir(),'bin', '7zz')
+        debug(f"**********************************  path_to_7z: {path_to_7z}")
     else:
         path_to_7z =  os.path.join(get_bundle_dir(),'bin', '7zzs')
 
@@ -2014,7 +2015,18 @@ def check_zip_contains_file(zip_file_path, file_to_check, low_mem, nested=False,
     if low_mem:
         return check_zip_contains_file_lowmem(zip_file_path, file_to_check, nested, is_recursive)
     else:
+        debug(f"{file_to_check}")
         return check_zip_contains_file_fast(zip_file_path, file_to_check, nested, is_recursive)
+
+# ============================================================================
+#                               Function check_dir_contains_file
+# ============================================================================
+def check_dir_contains_file(file_dir, file_to_check):
+    debug(f"Looking for {file_to_check} in directory {file_dir}")
+    for name in os.listdir(file_dir):
+        if name == file_to_check:
+            return name
+    return ''
 
 
 # ============================================================================
@@ -2026,18 +2038,27 @@ def check_zip_contains_file_fast(zip_file_path, file_to_check, nested=False, is_
             debug(f"Looking for {file_to_check} in zipfile {zip_file_path} with zip-nested: {nested}")
             wx.Yield()
         try:
+            start_time = time.perf_counter()
             with zipfile.ZipFile(zip_file_path, 'r') as zip_file:
                 for name in zip_file.namelist():
+                    debug(f"Filename: {name}")
                     if name.endswith(f'/{file_to_check}') or name == file_to_check:
+                        end_time = time.perf_counter()
+                        elapsed_time = end_time - start_time
+                        debug(f"Time elapsed: {elapsed_time}\n")
                         if not is_recursive:
                             debug(f"Found: {name}\n")
                         return name
                     elif nested and name.endswith('.zip'):
                         debug(f"Entering nested zip: {name}")
                         with zip_file.open(name, 'r') as nested_zip_file:
+                            start_time = time.perf_counter()
                             nested_zip_data = nested_zip_file.read()
                         with io.BytesIO(nested_zip_data) as nested_zip_stream:
                             with zipfile.ZipFile(nested_zip_stream, 'r') as nested_zip:
+                                end_time = time.perf_counter()
+                                elapsed_time = end_time - start_time
+                                debug(f"Time elapsed: {elapsed_time}\n")
                                 nested_file_path = check_zip_contains_file_fast(nested_zip_stream, file_to_check, nested=True, is_recursive=True)
                                 if nested_file_path:
                                     if not is_recursive:
