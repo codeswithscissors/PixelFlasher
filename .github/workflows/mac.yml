@@ -87,11 +87,11 @@ jobs:
               "$(npm root -g)/create-dmg/node_modules/macos-alias/lib/encode.js"
           fi
 
-      - name: Add Python 3.13 to PATH
-        run: export PATH=/opt/homebrew/Cellar/python@3.13/bin:$PATH
+      - name: Add Python 3.14 to PATH
+        run: export PATH=/opt/homebrew/Cellar/python@3.14/bin:$PATH
 
       - name: Create virtual environment
-        run: python3.13 -m venv myenv
+        run: python3.14 -m venv myenv
         shell: bash
 
       - name: Activate virtual environment
@@ -99,15 +99,15 @@ jobs:
         shell: bash
 
       - name: Install requirements
-        run: PYLZ4_USE_SYSTEM_LZ4="False" ARCHFLAGS="-arch x86_64 -arch arm64" python3.13 -m pip install --no-binary 'bsdiff4,psutil,PyYAML,MarkupSafe,cffi,lz4' -r requirements.txt
+        run: PYLZ4_USE_SYSTEM_LZ4="False" ARCHFLAGS="-arch x86_64 -arch arm64" python3.14 -m pip install --no-binary 'bsdiff4,psutil,PyYAML,MarkupSafe,cffi,lz4' -r requirements.txt
 
       - name: List modules and their versions
-        run: python3.13 -m pip freeze
+        run: python3.14 -m pip freeze
 
       - name: Verify universal2 extension modules
         shell: bash
         run: |
-          python3.13 - <<'PY'
+          python3.14 - <<'PY'
           import importlib.machinery
           import pathlib
           import fnmatch
