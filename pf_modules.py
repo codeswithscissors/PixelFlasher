@@ -3586,7 +3586,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             print("Aborting ...\n")
             puml("#red:Incompatible Kernel KMI;\n}\n")
             return
-        if device.hardware in pixel_devices:
+        if True: #device.hardware in pixel_devices:
             anykernel = True
         else:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: KernelSU (Next) / SukiSU / Wild_KSU patching in PixelFlasher is only supported on Pixel devices")
